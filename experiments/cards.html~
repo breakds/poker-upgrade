@@ -1,0 +1,4 @@
+<div>
+  <img src="../assets/img/cards_svg/5_of_clubs.svg" style="z-index:1;position:relative;"></img>
+  <img src="../assets/img/cards_svg/6_of_hearts.svg" style="z-index:2;position:relative;left:-100px"></img>
+</div>

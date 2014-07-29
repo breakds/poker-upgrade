@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Poker: Upgrade</title>
+    <!-- CSS Files -->
+    
+    <style type="text/css">
+      body {
+        margin: 0px
+        font-family: source-sans-pro, sans-serif;
+        position: relative;
+        -webkit-font-smoothing: antialiased;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="content">
+    </div>
+    <!-- JavaScript Libraries -->
+    
+    <script src="http://fb.me/react-0.10.0.js"></script>
+    
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+    
+
+    <!-- JavaScript -->
+    <script>var pokerDeck = React.createClass({selected : function () { console.log("ok"); },
+      render : function () {
+      return React.DOM.div({ style : { 'padding-top' : 100 } }, React.DOM.button({ onClick : this.selected }, 'hehe'));
+      }});
+      (function () {
+      var resultSymbol64 = pokerDeck({ cards : [{ 'suit' : 5, 'num' : 0 }, { 'suit' : 1, 'num' : 4 }, { 'suit' : 2, 'num' : 10 }] });
+    return React.renderComponent(resultSymbol64, document.getElementById('content'));
+})();</script>
+  </body>
+</html>

@@ -4,7 +4,9 @@
     :serial t
     :depends-on (#:basicl
                  #:parenscript
+                 #:bordeaux-threads
                  #:realispic)
-    :components ((:file "poker")))
+    :components ((:file "lisp/backend")
+                 (:file "lisp/poker")))
 
                         

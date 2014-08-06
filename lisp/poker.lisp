@@ -9,7 +9,15 @@
 (in-package #:breakds.poker-upgrade)
 
 (defstruct robot-player
+  (id 0)
   (cards nil))
+
+(defun think (player quantity)
+  (let ((cards (loop for i below quantity
+                  collect (pop (robot-player-cards player)))))
+    (handle-play-cards (robot-player-id player)
+                       cards)))
+  
 
 (defparameter *players* nil)
 (defparameter *pool* nil)
@@ -18,14 +26,6 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (enable-jsx-reader))
 
-(defun id-to-card (id)
-  (let ((id-in-54 (mod id 54)))
-    (case id-in-54
-      (53 '(5 0))
-      (52 '(4 0))
-      (t (multiple-value-bind (suit num) (floor id-in-54 13)
-           `(,suit ,(1+ num)))))))
-  
 (defun to-json-card (card)
   (json "suit" (first card)
         "num" (second card)))
@@ -38,6 +38,7 @@
                    (loop for i below 108 collect i))))
     (loop for i below 3
        do (push (make-robot-player 
+                 :id (- 3 i)
                  :cards (loop for j from (* i 27) below (* (1+ i) 27)
                            collect (id-to-card j)))
                 *players*))
@@ -51,25 +52,32 @@
   (json "pool" *pool*
         "status" *status*))
 
-(def-rpc play-cards (cards)
-  (setf (car *pool*) (list (id-to-json-card 12)
-                            (id-to-json-card 50))))
+(defun handle-play-cards (player-id cards)
+  (when (< player-id 3)
+    (bordeaux-threads:make-thread 
+     (lambda ()
+       (sleep 1)
+       (think (nth player-id *players*) (length cards)))))
+  (setf (nth player-id *pool*)
+        (mapcar (lambda (x)
+                  (to-json-card x))
+                cards)))
+
+
+(def-rpc play-cards (player-id cards)
+  (handle-play-cards player-id 
+                     (mapcar (lambda (x)
+                               (list (jsown:val x "suit")
+                                     (jsown:val x "num")))
+                             cards)))
 
 (def-widget poker-table ()
     ((state (deck-cards (array))
             (status "waiting")
-            (pool0 (array (create :num 0 :suit 4)
-                          (create :num 13 :suit 2)
-                          (create :num 13 :suit 2)))
-            (pool1 (array (create :num 12 :suit 2)
-                          (create :num 13 :suit 2)
-                          (create :num 13 :suit 2)))
-            (pool2 (array (create :num 12 :suit 2)
-                          (create :num 13 :suit 2)
-                          (create :num 13 :suit 2)))
-            (pool3 (array (create :num 12 :suit 2)
-                          (create :num 13 :suit 2)
-                          (create :num 13 :suit 2))))
+            (pool0 (array))
+            (pool1 (array))
+            (pool2 (array))
+            (pool3 (array)))
      (score-card (input-card) (+ (* (@ input-card suit) 100)
                                  (if (= 1 (@ input-card num))
                                      14
@@ -84,14 +92,25 @@
                                                   pool1 (array)
                                                   pool2 (array)
                                                   pool3 (array))))
-                   (with-rpc (play-cards 12) nil)
+                   (with-rpc (play-cards 0 (chain (local-state deck-cards)
+                                                  (filter (lambda (x)
+                                                            (@ x selected)))))
+                     (let ((old-deck (local-state deck-cards)))
+                       (chain this (set-state (create deck-cards
+                                                      (chain old-deck 
+                                                             (filter (lambda (x)
+                                                                       (not (@ x selected)))))
+                                                      pool0
+                                                      (chain old-deck 
+                                                             (filter (lambda (x)
+                                                                       (@ x selected))))))))
+                     nil)
                    nil)
-     (timed-update ()
-                   (chain console (log "ok"))
+     (timed-update () 
                    (with-rpc (timed-update)
-                     (chain this 
-                            (set-state (create pool0 
-                                               (aref (@ rpc-result pool) 0))))))
+                     (chain this (set-state (create pool1 (aref (@ rpc-result pool) 1)
+                                                    pool2 (aref (@ rpc-result pool) 2)
+                                                    pool3 (aref (@ rpc-result pool) 3))))))
      (component-did-mount ()
                           (set-interval (@ this timed-update) 2000)
                           (with-rpc (initialize)
@@ -213,7 +232,7 @@
   #jsx(:img ((style :z-index (+ sequence 100)
                     :position "absolute"
                     :left (if in-hand (+ (+ (* 1.5 sequence) 5) "%") (* 20 sequence))
-                    :top (if selected "-20" "0")
+                    :top (if (and selected in-hand) "-20" "0")
                     :width (if in-hand "8%" "auto")
                     :height (if in-hand "auto" 180)
                     :max-height (if in-hand 1000 180)

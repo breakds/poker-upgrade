@@ -1,16 +1,5 @@
 ;;;; poker.lisp
-
-(defpackage #:breakds.poker-upgrade
-  (:nicknames #:poker-upgrade)
-  (:use #:cl
-        #:parenscript
-        #:realispic))
-
 (in-package #:breakds.poker-upgrade)
-
-(defstruct robot-player
-  (id 0)
-  (cards nil))
 
 (defun think (player quantity)
   (let ((cards (loop for i below quantity
@@ -26,50 +15,9 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (enable-jsx-reader))
 
-(defun to-json-card (card)
-  (json "suit" (first card)
-        "num" (second card)))
-
-(defun id-to-json-card (id)
-  (to-json-card (id-to-card id)))
-
-(def-rpc initialize ()
-  (let ((shuffled (alexandria:shuffle 
-                   (loop for i below 108 collect i))))
-    (loop for i below 3
-       do (push (make-robot-player 
-                 :id (- 3 i)
-                 :cards (loop for j from (* i 27) below (* (1+ i) 27)
-                           collect (id-to-card j)))
-                *players*))
-    (setf *pool* '(nil nil nil nil))
-    (loop 
-       for id in shuffled
-       for i below 27
-       collect (id-to-json-card id))))
-
 (def-rpc timed-update ()
   (json "pool" *pool*
         "status" *status*))
-
-(defun handle-play-cards (player-id cards)
-  (when (< player-id 3)
-    (bordeaux-threads:make-thread 
-     (lambda ()
-       (sleep 1)
-       (think (nth player-id *players*) (length cards)))))
-  (setf (nth player-id *pool*)
-        (mapcar (lambda (x)
-                  (to-json-card x))
-                cards)))
-
-
-(def-rpc play-cards (player-id cards)
-  (handle-play-cards player-id 
-                     (mapcar (lambda (x)
-                               (list (jsown:val x "suit")
-                                     (jsown:val x "num")))
-                             cards)))
 
 (def-widget poker-table ()
     ((state (deck-cards (array))
@@ -106,11 +54,11 @@
                                                                        (@ x selected))))))))
                      nil)
                    nil)
-     (timed-update () 
-                   (with-rpc (timed-update)
-                     (chain this (set-state (create pool1 (aref (@ rpc-result pool) 1)
-                                                    pool2 (aref (@ rpc-result pool) 2)
-                                                    pool3 (aref (@ rpc-result pool) 3))))))
+     (timed-update () nil)
+                   ;; (with-rpc (timed-update)
+                   ;;   (chain this (set-state (create pool1 (aref (@ rpc-result pool) 1)
+                   ;;                                  pool2 (aref (@ rpc-result pool) 2)
+                   ;;                                  pool3 (aref (@ rpc-result pool) 3))))))
      (component-did-mount ()
                           (set-interval (@ this timed-update) 2000)
                           (with-rpc (initialize)

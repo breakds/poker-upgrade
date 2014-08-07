@@ -6,7 +6,8 @@
                  #:parenscript
                  #:bordeaux-threads
                  #:realispic)
-    :components ((:file "lisp/backend")
+    :components ((:file "lisp/packages")
+                 (:file "lisp/backend")
                  (:file "lisp/poker")))
 
                         

@@ -20,7 +20,8 @@
 
 (defstruct poker-player
   (id 0)
-  (cards nil))
+  (cards nil)
+  (status :waiting))
 
 (defstruct (robot-player (:include poker-player)
                          (:conc-name robot-)))
@@ -101,16 +102,25 @@
           cards
           :initial-value hand-cards))
 
+(defun query-pool-size ()
+  (loop 
+     for i below 4
+     for cards = (aref (dealer-pool *dealer*) i)
+     when cards
+     return (length cards)))
+
 ;;; ---------- Interfaces ----------
 
 (defun initialize-robot-player (id)
   (setf (aref (dealer-players *dealer*) id)
         (make-robot-player :id id
+                           :status :waiting
                            :cards (copy-list (aref (dealer-cards *dealer*)
                                                    id)))))
 (defun initialize-human-player (id)
   (setf (aref (dealer-players *dealer*) id)
         (make-human-player :id id
+                           :status :waiting
                            :cards (copy-list (aref (dealer-cards *dealer*)
                                                    id)))))
 (def-rpc initialize ()
@@ -135,8 +145,16 @@
 
   ;; initialize human player
   (initialize-human-player 0)
+  (setf (human-status (aref (dealer-players *dealer*) 0)) :playing)
   (mapcar #'to-json-card (human-cards (aref (dealer-players *dealer*)
                                             0))))
+
+(defun robot-think (player-id)
+  (sleep 1)
+  (let ((num (aif (query-pool-size) it (1+ (random 3)))))
+    (loop for i below num
+       collect (pop (robot-cards (aref (dealer-players *dealer*)
+                                       player-id))))))
 
 (defun handle-play-cards (player-id cards)
   (incf (dealer-turn-counter *dealer*) 0)
@@ -145,13 +163,29 @@
         (remove-cards (aref (dealer-cards *dealer*) 
                             player-id)
                       cards))
+
+  ;; Clear pool and turn-counter if it's a new round
+  (when (= (dealer-turn-counter *dealer*) 4)
+    (loop for i below 4 
+       do (setf (aref (dealer-pool *dealer*) i) nil))
+    (setf (dealer-turn-counter *dealer*) 0))
+
+  (incf (dealer-turn-counter *dealer*) 0)
   (setf (aref (dealer-pool *dealer*) player-id)
         cards))
 
 (def-rpc play-cards (player-id cards)
+  (setf (human-status (aref (dealer-players *dealer*) 
+                            player-id))
+        :waiting)
   (handle-play-cards player-id 
                      (mapcar #'json-to-card cards)))
   
+(def-rpc update-pool ()
+  (json "pool" (loop for cards across (dealer-pool *dealer*)
+                  collect (mapcar #'to-json-card cards))))
+                                  
+                       
   
 
     

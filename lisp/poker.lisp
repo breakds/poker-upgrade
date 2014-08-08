@@ -15,10 +15,6 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (enable-jsx-reader))
 
-(def-rpc timed-update ()
-  (json "pool" *pool*
-        "status" *status*))
-
 (def-widget poker-table ()
     ((state (deck-cards (array))
             (status "waiting")
@@ -44,7 +40,8 @@
                                                   (filter (lambda (x)
                                                             (@ x selected)))))
                      (let ((old-deck (local-state deck-cards)))
-                       (chain this (set-state (create deck-cards
+                       (chain this (set-state (create status "waiting"
+                                                      deck-cards
                                                       (chain old-deck 
                                                              (filter (lambda (x)
                                                                        (not (@ x selected)))))
@@ -54,13 +51,15 @@
                                                                        (@ x selected))))))))
                      nil)
                    nil)
-     (timed-update () nil)
-                   ;; (with-rpc (timed-update)
-                   ;;   (chain this (set-state (create pool1 (aref (@ rpc-result pool) 1)
-                   ;;                                  pool2 (aref (@ rpc-result pool) 2)
-                   ;;                                  pool3 (aref (@ rpc-result pool) 3))))))
+     (timed-update () 
+                   (when (= (local-state status) "waiting")
+                     (with-rpc (update-pool)
+                       (chain this (set-state (create pool0 (aref (@ rpc-result pool) 0)
+                                                      pool1 (aref (@ rpc-result pool) 1)
+                                                      pool2 (aref (@ rpc-result pool) 2)
+                                                      pool3 (aref (@ rpc-result pool) 3)))))))
      (component-did-mount ()
-                          (set-interval (@ this timed-update) 2000)
+                          (set-interval (@ this timed-update) 500)
                           (with-rpc (initialize)
                             (chain this 
                                    (set-state (create deck-cards ((@ this sorted)

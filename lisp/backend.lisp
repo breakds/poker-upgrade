@@ -123,6 +123,10 @@
                            :status :waiting
                            :cards (copy-list (aref (dealer-cards *dealer*)
                                                    id)))))
+
+(defun new-turn ()
+  (setf (dealer-turn-counter *dealer*) 0))
+  
 (def-rpc initialize ()
   ;; Deal cards
   (let ((shuffled (alexandria:shuffle 
@@ -133,7 +137,7 @@
                    collect (id-to-card (pop shuffled))))))
   
   ;; initialize turn-counter
-  (setf (dealer-turn-counter *dealer*) 0)
+  (new-turn)
                 
   ;; initialize robot player
   (loop for i below 3 
@@ -152,9 +156,11 @@
 (defun robot-think (player-id)
   (sleep 1)
   (let ((num (aif (query-pool-size) it (1+ (random 3)))))
-    (loop for i below num
-       collect (pop (robot-cards (aref (dealer-players *dealer*)
-                                       player-id))))))
+    (handle-play-cards player-id
+                       (loop for i below num
+                          collect (pop (robot-cards 
+                                        (aref (dealer-players *dealer*)
+                                              player-id)))))))
 
 (defun handle-play-cards (player-id cards)
   (incf (dealer-turn-counter *dealer*) 0)
@@ -164,26 +170,40 @@
                             player-id)
                       cards))
 
-  ;; Clear pool and turn-counter if it's a new round
-  (when (= (dealer-turn-counter *dealer*) 4)
+  ;; Clear pool and turn-counter if it's a new turn
+  (when (= (dealer-turn-counter *dealer*) 0)
     (loop for i below 4 
-       do (setf (aref (dealer-pool *dealer*) i) nil))
-    (setf (dealer-turn-counter *dealer*) 0))
+       do (setf (aref (dealer-pool *dealer*) i) nil)))
 
-  (incf (dealer-turn-counter *dealer*) 0)
+  (incf (dealer-turn-counter *dealer*))
   (setf (aref (dealer-pool *dealer*) player-id)
-        cards))
+        cards)
+
+  ;; Call next player.
+  (let ((next-player-id (if (= (dealer-turn-counter *dealer*) 4)
+                            (progn (new-turn) 0)
+                            (mod (1+ player-id) 4))))
+    (if (human-player-p (aref (dealer-players *dealer*)
+                              next-player-id))
+        (setf (human-status (aref (dealer-players *dealer*)
+                                  next-player-id))
+              :playing)
+        (bordeaux-threads:make-thread
+         (lambda () (robot-think next-player-id))))))
 
 (def-rpc play-cards (player-id cards)
   (setf (human-status (aref (dealer-players *dealer*) 
                             player-id))
         :waiting)
   (handle-play-cards player-id 
-                     (mapcar #'json-to-card cards)))
+                     (mapcar #'json-to-card cards))
+  nil)
   
-(def-rpc update-pool ()
+(def-rpc update-pool (player-id)
   (json "pool" (loop for cards across (dealer-pool *dealer*)
-                  collect (mapcar #'to-json-card cards))))
+                  collect (mapcar #'to-json-card cards))
+        "status" (human-status (aref (dealer-players *dealer*)
+                                     player-id))))
                                   
                        
   

@@ -1,23 +1,12 @@
 ;;;; poker.lisp
 (in-package #:breakds.poker-upgrade)
 
-(defun think (player quantity)
-  (let ((cards (loop for i below quantity
-                  collect (pop (robot-player-cards player)))))
-    (handle-play-cards (robot-player-id player)
-                       cards)))
-  
-
-(defparameter *players* nil)
-(defparameter *pool* nil)
-(defparameter *status* "playing")
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (enable-jsx-reader))
 
 (def-widget poker-table ()
     ((state (deck-cards (array))
-            (status "waiting")
+            (status "WAITING")
             (pool0 (array))
             (pool1 (array))
             (pool2 (array))
@@ -40,7 +29,7 @@
                                                   (filter (lambda (x)
                                                             (@ x selected)))))
                      (let ((old-deck (local-state deck-cards)))
-                       (chain this (set-state (create status "waiting"
+                       (chain this (set-state (create status "WAITING"
                                                       deck-cards
                                                       (chain old-deck 
                                                              (filter (lambda (x)
@@ -52,19 +41,20 @@
                      nil)
                    nil)
      (timed-update () 
-                   (when (= (local-state status) "waiting")
-                     (with-rpc (update-pool)
+                   (when (= (local-state status) "WAITING")
+                     (with-rpc (update-pool 0)
                        (chain this (set-state (create pool0 (aref (@ rpc-result pool) 0)
                                                       pool1 (aref (@ rpc-result pool) 1)
                                                       pool2 (aref (@ rpc-result pool) 2)
-                                                      pool3 (aref (@ rpc-result pool) 3)))))))
+                                                      pool3 (aref (@ rpc-result pool) 3)
+                                                      status (@ rpc-result status)))))))
      (component-did-mount ()
                           (set-interval (@ this timed-update) 500)
                           (with-rpc (initialize)
                             (chain this 
                                    (set-state (create deck-cards ((@ this sorted)
                                                                   rpc-result)
-                                                      status "playing"))))
+                                                      status "PLAYING"))))
                           nil)
      (sorted (input-cards) (let ((tmp (chain input-cards (map (lambda (x) x)))))
                              (chain tmp (sort (lambda (x y)
@@ -136,7 +126,7 @@
                         (:played-cards ((cards pool1))))
                   (:div ((class-name "pure-u-1-3"))
                         (:center-button ((click-action on-play-card)
-                                         (disabled (if (= status "playing")
+                                         (disabled (if (= status "PLAYING")
                                                        false
                                                        true)))))
                   (:div ((class-name "pure-u-1-3")
@@ -158,8 +148,12 @@
                                   "gray"
                                   "black")
                        :height 150)
-                (on-click click-action))
-               "Play Cards"))
+                (on-click (if disabled 
+                              (lambda () nil)
+                              click-action)))
+               (if disabled 
+                   "Waiting ..."
+                   "Play Cards")))
 
 (def-widget played-cards (cards)
     ()

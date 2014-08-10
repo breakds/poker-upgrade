@@ -14,6 +14,9 @@
   (players (make-array 4
                        :initial-element nil))
   (seated 0 :type fixnum)
+  (major-suit 0 :type fixnum)
+  (major-num 0 :type fixnum)
+  (major-req 0 :type fixnum)
   (turn-counter 0 :type fixnum))
 
 (defparameter *dealer* (make-dealer))
@@ -124,6 +127,10 @@
                            :cards (copy-list (aref (dealer-cards *dealer*)
                                                    id)))))
 
+(defun clear-pool ()
+  (loop for i below 4
+     do (setf (aref (dealer-pool *dealer*) i) nil)))
+
 (defun new-turn ()
   (setf (dealer-turn-counter *dealer*) 0))
   
@@ -144,8 +151,12 @@
      do (initialize-robot-player (- 3 i)))
 
   ;; initialize pool
-  (loop for i below 4
-     do (setf (aref (dealer-pool *dealer*) i) nil))
+  (clear-pool)
+
+  ;; initialize major
+  (setf (dealer-major-suit *dealer*) -1)
+  (setf (dealer-major-num *dealer*) 2)
+  (setf (dealer-major-req *dealer*) 0)
 
   ;; initialize human player
   (initialize-human-player 0)
@@ -172,9 +183,8 @@
 
   ;; Clear pool and turn-counter if it's a new turn
   (when (= (dealer-turn-counter *dealer*) 0)
-    (loop for i below 4 
-       do (setf (aref (dealer-pool *dealer*) i) nil)))
-
+    (clear-pool))
+  
   (incf (dealer-turn-counter *dealer*))
   (setf (aref (dealer-pool *dealer*) player-id)
         cards)
@@ -204,7 +214,25 @@
                   collect (mapcar #'to-json-card cards))
         "status" (human-status (aref (dealer-players *dealer*)
                                      player-id))))
+
+(def-rpc query-major ()
+  (json "suit" (dealer-major-suit *dealer*)
+        "num" (dealer-major-num *dealer*)
+        "req" (dealer-major-req *dealer*)))
                                   
+(def-rpc call-major (player-id suit strength)
+  (hunchentoot:log-message* :info "suit: ~a strength ~a" suit strength)
+  (when (or (> strength (dealer-major-req *dealer*))
+            (and (= suit 4) (< (dealer-major-suit *dealer*) 4)))
+    (setf (dealer-major-req *dealer*) strength)
+    (setf (dealer-major-suit *dealer*) suit)
+    (clear-pool)
+    (setf (aref (dealer-pool *dealer*) player-id)
+          (loop for i below strength
+             collect (if (< suit 4)
+                         (list suit (dealer-major-num *dealer*))
+                         (list suit 0)))))
+  nil)
                        
   
 

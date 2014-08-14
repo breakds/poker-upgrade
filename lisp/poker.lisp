@@ -12,6 +12,8 @@
             (major-callable (loop for i from 0 to 4
                                collect (create "active" false
                                                "strength" 0)))
+            (selected-count 0)
+            (banker false)
             (pool0 (array))
             (pool1 (array))
             (pool2 (array))
@@ -24,7 +26,14 @@
                      (let ((tmp (local-state deck-cards)))
                        (setf (@ (aref tmp sequence) selected)
                              (not (@ (aref tmp sequence) selected)))
-                       (chain this (set-state (create deck-cards tmp)))))
+                       (let ((new-count 
+                              (if (@ (aref tmp sequence) selected)
+                                  (1+ (local-state selected-count))
+                                  (1- (local-state selected-count)))))
+                       (chain this 
+                              (set-state 
+                               (create selected-count new-count)))
+                       (chain this (set-state (create deck-cards tmp))))))
      (on-play-card ()
                    (chain this (set-state (create pool0 (array)
                                                   pool1 (array)
@@ -90,15 +99,40 @@
                                                        new-callable)))
                         ((@ this pool-update)))
                       nil)
+     (normalize () 
+                (with-rpc (update-unfaced (chain (local-state deck-cards)
+                                                 (filter (lambda (x)
+                                                           (@ x selected)))))
+                  (let ((old-deck (local-state deck-cards)))
+                    (setf (@ this pool-update-timer)
+                          (set-interval (@ this pool-update) 500))
+                    (chain this (set-state (create status "PLAYING"
+                                                   deck-cards
+                                                   (chain old-deck 
+                                                          (filter (lambda (x)
+                                                                    (not (@ x selected)))))))))
+                  nil)
+                nil)
      (deal-card ()
                 (with-rpc (query-major)
                   (chain this (set-state (create major-suit (@ rpc-result suit))))
                   (setf (@ this major-req) (@ rpc-result req))
                   (if (= (@ this undealt-cards length) 0)
                       (progn (clear-interval (@ this dealing-timer))
-                             (chain this (set-state (create status "PLAYING")))
-                             (setf (@ this pool-update-timer)
-                                   (set-interval (@ this pool-update) 500))
+                             (if (not (local-state banker))
+                                 (progn
+                                   (chain this (set-state (create status "PLAYING")))
+                                   (setf (@ this pool-update-timer)
+                                         (set-interval (@ this pool-update) 500)))
+                                 (progn
+                                   (with-rpc (deal-unfaced)
+                                     (let ((dealt-cards (local-state deck-cards)))
+                                       (setf dealt-cards (chain dealt-cards (concat rpc-result)))
+                                       (chain this (set-state (create 
+                                                               status "NORMALIZING"
+                                                               selected-count 0
+                                                               deck-cards ((@ this sorted) 
+                                                                           dealt-cards))))))))
                              nil)
                       (let ((dealt-cards (local-state deck-cards)))
                         (chain dealt-cards (push (chain this 
@@ -113,14 +147,16 @@
                 nil)
      (component-did-mount ()
                           (with-rpc (initialize)
-                            (setf (@ this undealt-cards) rpc-result)
+                            (setf (@ this undealt-cards) (@ rpc-result cards))
+                            (chain this (set-state (create banker
+                                                           (@ rpc-result banker))))
                             nil)
                           (with-rpc (query-major)
                             (chain this (set-state (create major-num 
                                                            (@ rpc-result "num"))))
                             (setf (@ this major-req) (@ rpc-result "req"))
                             (setf (@ this dealing-timer) 
-                                  (set-interval (@ this deal-card) 1000))
+                                  (set-interval (@ this deal-card) 400))
                             nil)
                           nil)
      (sorted (input-cards) (let ((tmp (chain input-cards (map (lambda (x) x)))))
@@ -141,6 +177,8 @@
                           (pool1 (local-state pool1))
                           (pool2 (local-state pool2))
                           (pool3 (local-state pool3))
+                          (selected-count (local-state selected-count))
+                          (normalize (@ this normalize))
                           (on-play-card (@ this on-play-card))))
             (:div ((style :position "relative"))
                   (chain (local-state deck-cards) (map (lambda (card seq)
@@ -178,7 +216,8 @@
                          major-num))))
 
 (def-widget table-pool (status pool0 pool1 pool2 pool3 
-                               on-play-card major-callable call-major) 
+                               on-play-card major-callable 
+                               call-major normalize selected-count) 
     ()
   #jsx(:div ()
             (:div ((class-name "class-g"))
@@ -202,13 +241,24 @@
                          (style :height 200))
                         (:played-cards ((cards pool1))))
                   (:div ((class-name "pure-u-1-3"))
-                        (if (= status "DEALING")
-                            (:major-caller ((callable major-callable)
-                                            (call-major-callback call-major)))
-                            (:center-button ((click-action on-play-card)
-                                             (disabled (if (= status "PLAYING")
-                                                           false
-                                                           true))))))
+                        (funcall 
+                         (lambda (x)
+                           (case x
+                             ("DEALING" 
+                              (:major-caller ((callable major-callable)
+                                              (call-major-callback call-major))))
+                             ("PLAYING" 
+                              (:center-button ((click-action on-play-card)
+                                               (disabled false))))
+                             ("WAITING" 
+                              (:center-button ((click-action on-play-card)
+                                               (disabled true))))
+                             ("NORMALIZING" 
+                              (:normalize-button ((do-normalize normalize)
+                                                  (disabled (if (= selected-count 8)
+                                                                false
+                                                                true)))))))
+                         status))
                   (:div ((class-name "pure-u-1-3")
                          (style :height 200))
                         (:played-cards ((cards pool3)))))
@@ -234,6 +284,17 @@
                (if disabled 
                    "Waiting ..."
                    "Play Cards")))
+
+(def-widget normalize-button (do-normalize disabled)
+    ()
+  #jsx(:button ((style :width "80%"
+                       :font-size 40
+                       :color (if disabled "gray" "blue")
+                       :height 150)
+                (on-click (if disabled 
+                              (lambda () nil)
+                              do-normalize)))
+               "Discard"))
 
 (def-widget major-caller (callable call-major-callback)
     ()

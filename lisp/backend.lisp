@@ -11,12 +11,14 @@
   (pool (make-array 4
                     :initial-element nil)
         :type (simple-array * (4)))
+  (unfaced nil)
   (players (make-array 4
                        :initial-element nil))
   (seated 0 :type fixnum)
   (major-suit 0 :type fixnum)
   (major-num 0 :type fixnum)
   (major-req 0 :type fixnum)
+  (banker 0)
   (turn-counter 0 :type fixnum))
 
 (defparameter *dealer* (make-dealer))
@@ -30,7 +32,9 @@
                          (:conc-name robot-)))
 
 (defstruct (human-player (:include poker-player)
-                         (:conc-name human-)))
+                         (:conc-name human-))
+  (ready nil))
+
 
 
 ;;; ---------- Card Utilities ----------
@@ -124,6 +128,7 @@
   (setf (aref (dealer-players *dealer*) id)
         (make-human-player :id id
                            :status :waiting
+                           :ready nil
                            :cards (copy-list (aref (dealer-cards *dealer*)
                                                    id)))))
 
@@ -141,7 +146,9 @@
     (loop for i below 4
        do (setf (aref (dealer-cards *dealer*) i)
                 (loop for j below 25
-                   collect (id-to-card (pop shuffled))))))
+                   collect (id-to-card (pop shuffled)))))
+    (setf (dealer-unfaced *dealer*) 
+          (mapcar #'id-to-card shuffled)))
   
   ;; initialize turn-counter
   (new-turn)
@@ -149,7 +156,7 @@
   ;; initialize robot player
   (loop for i below 3 
      do (initialize-robot-player (- 3 i)))
-
+  
   ;; initialize pool
   (clear-pool)
 
@@ -158,11 +165,16 @@
   (setf (dealer-major-num *dealer*) 2)
   (setf (dealer-major-req *dealer*) 0)
 
+  ;; initialize banker
+  (setf (dealer-banker *dealer*) 0)
+
   ;; initialize human player
   (initialize-human-player 0)
   (setf (human-status (aref (dealer-players *dealer*) 0)) :playing)
-  (mapcar #'to-json-card (human-cards (aref (dealer-players *dealer*)
-                                            0))))
+  (json "cards" 
+        (mapcar #'to-json-card (human-cards (aref (dealer-players *dealer*)
+                                                  0)))
+        "banker" t))
 
 (defun robot-think (player-id)
   (sleep 1)
@@ -233,9 +245,16 @@
                          (list suit (dealer-major-num *dealer*))
                          (list suit 0)))))
   nil)
-                       
-  
 
+(def-rpc deal-unfaced ()
+  (mapcar #'to-json-card
+          (dealer-unfaced *dealer*)))
+                       
+
+(def-rpc update-unfaced (cards)
+  (setf (dealer-unfaced *dealer*)
+        (mapcar #'json-to-card cards))
+  nil)
     
 
   

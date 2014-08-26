@@ -21,7 +21,7 @@
   (banker 0)
   (turn-counter 0 :type fixnum))
 
-(defparameter *dealer* (make-dealer))
+(defvar *dealer* (make-dealer))
 
 (defstruct poker-player
   (id 0)
@@ -103,11 +103,11 @@
 (defun card-equal (card-a card-b)
   (equal card-a card-b))
 
-(defun remove-cards (hand-cards cards)
+(defun remove-cards (cards to-be-removed)
   (reduce (lambda (y x) 
             (remove-if (lambda (z) (card-equal z x)) y))
-          cards
-          :initial-value hand-cards))
+          to-be-removed
+          :initial-value cards))
 
 (defun query-pool-size ()
   (loop 
@@ -115,6 +115,122 @@
      for cards = (aref (dealer-pool *dealer*) i)
      when cards
      return (length cards)))
+
+;;; ---------- Rules ----------
+
+(defstruct hand
+  ;; type can be :single :pair :tractor
+  (type :single)
+  ;; for a hand, content must be sorted
+  (content nil)
+  ;; the id of the player who played the hand
+  (player 0)
+  ;; pos is the position of the player, it can be
+  ;; 
+  ;; 0: leader, the first one who played the card in this round
+  ;; 1: follower, the second
+  ;; 2: supporter, the third
+  ;; 4: closer, the forth
+  (pos 0))
+
+
+(declaim (inline major-score))
+(defun major-score (card dealer)
+  ;; major-score is defined as below:
+  ;; when major-suit < 4:
+  ;;   = major-num: + 2
+  ;;   = major-suit: + 1
+  ;;   is black-joker: + 4
+  ;;   is red-joker: + 5
+  ;; when major-suit = 4:
+  ;;   = major-num: + 1
+  ;;   = black-joker: + 2
+  ;;   = red-joker: + 3
+  (let ((suit (card-suit card))
+        (num (card-num card))
+        (switch (= (dealer-major-suit dealer) 4)))
+    (+ (if (and (= suit (dealer-major-suit dealer))
+                (not switch))
+           1 0)
+       (if (= num (dealer-major-num dealer))
+           (if switch 1 2) 0)
+       (if (> suit 3)
+           (- suit (if switch 2 0)) 0))))
+
+(declaim (inline score))
+(defun score (card dealer)
+  (labels ((num-score (num)
+             (if (= num 1)
+                 14
+                 (+ num
+                    (if (or (< num (dealer-major-num dealer))
+                            (= 1 (dealer-major-num dealer)))
+                        1 0)))))
+    (let ((suit (card-suit card))
+          (num (card-num card))
+          (m-score (major-score card dealer))
+          (switch (= (dealer-major-suit dealer) 4)))
+      (+ (* (if (zerop m-score) suit 4) 100)
+         (if switch
+             (case m-score
+               (0 (num-score num))
+               (t m-score))
+             (if (< m-score 2)
+                 (num-score num)
+                 (+ 13 m-score)))))))
+
+(defun card-< (card-a card-b dealer)
+  "The comparator for cards. This function defines the order of cards,
+  but does not determine the strength between two cards as it does not
+  take consideration of player position."
+  (let ((score-a (score card-a dealer))
+        (score-b (score card-b dealer)))
+    (if (= score-a score-b)
+        (< (card-suit card-a) (card-suit card-b))
+        (< score-a score-b))))
+
+(defun decomposite (cards dealer)
+  (let ((sorted (sort (copy-list cards) #2`,(card-< x1 x2 dealer)))
+        singles pair-holder pairs tractor-stack tractors)
+    (labels ((try-push-pair (card)
+               (if (null pair-holder)
+                   (setf pair-holder card)
+                   (if (card-equal pair-holder card)
+                       (progn (try-push-tractor card)
+                              (setf pair-holder nil))
+                       (progn (push pair-holder singles)
+                              (setf pair-holder card)))))
+             (try-push-tractor (card)
+               (if (null tractor-stack)
+                   (push card tractor-stack)
+                   (if (= (abs (- (score (first tractor-stack) dealer)
+                                  (score card dealer)))
+                          1)
+                       (push card tractor-stack)
+                       (progn (if (> (length tractor-stack) 1)
+                                  (push (reverse tractor-stack) tractors)
+                                  (push (first tractor-stack) pairs))
+                              (setf tractor-stack (list card)))))))
+      (loop for card in sorted
+         do (try-push-pair card))
+      (when pair-holder 
+        (push pair-holder singles))
+      (when tractor-stack
+        (if (> (length tractor-stack) 1)
+            (push (reverse tractor-stack) tractors)
+            (push (first tractor-stack) pairs))))
+    (values singles pairs tractors)))
+
+(defun card-pk-< (card-a pos-a card-b pos-b dealer)
+  (let ((major-score-a (major-score card-a dealer))
+        (major-score-b (major-score card-b dealer)))
+    (or (< major-score-a major-score-b)
+        (and (= major-score-a major-score-b)
+             (if (= (card-suit card-a) 
+                    (card-suit card-b))
+                 (card-< card-a card-b dealer)
+                 (< pos-b pos-a))))))
+                          
 
 ;;; ---------- Interfaces ----------
 
